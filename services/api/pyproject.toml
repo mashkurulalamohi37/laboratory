@@ -1,0 +1,145 @@
+[project]
+name = "nirnoy-api"
+version = "0.1.0"
+description = "Nirnoy Diagnostics platform API (modular monolith)"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.115,<0.116",
+  "uvicorn[standard]>=0.32",
+  "pydantic>=2.9",
+  "pydantic-settings>=2.6",
+  "email-validator>=2.2",
+  "sqlalchemy[asyncio]>=2.0.36",
+  "asyncpg>=0.30",
+  "alembic>=1.14",
+  "redis>=5.2",
+  "argon2-cffi>=23.1",
+  "pyjwt>=2.10",
+  "structlog>=24.4",
+  "boto3>=1.35",
+  "celery[redis]>=5.4",
+  "prometheus-fastapi-instrumentator>=7.0",
+  "sentry-sdk[fastapi]>=2.19",
+  "python-multipart>=0.0.18",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3",
+  "pytest-asyncio>=0.24",
+  "httpx>=0.28",
+  "ruff>=0.8",
+  "mypy>=1.13",
+  "import-linter>=2.1",
+  "boto3-stubs[s3]>=1.35",
+  "celery-types>=0.22",
+]
+
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "S", "ASYNC", "C4", "SIM", "RUF", "PL"]
+ignore = [
+  "PLR0913", "PLR0917", "PLR2004", "S101", "RUF012", "B008",
+  "N818",     # domain errors are named for what happened (NotFound, Conflict), not *Error
+  "PLW0603",  # lazily-initialised process singletons (engine, redis, providers)
+  "PLC0415",  # deliberate lazy imports (optional sentry, env set before app import)
+]
+
+[tool.ruff.lint.isort]
+known-third-party = ["alembic"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S105", "S106", "PLR0915", "S311"]
+"alembic/**" = ["E501", "PLR0915"]
+# Seed data: Bangla text (digits look like Latin ones to RUF001) in long literal tables.
+"app/scripts/demo_catalog.py" = ["RUF001", "E501", "C408"]
+"app/scripts/seed_geo.py" = ["RUF001", "E501"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+exclude = ["alembic/"]
+
+[[tool.mypy.overrides]]
+module = ["prometheus_fastapi_instrumentator.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+testpaths = ["tests"]
+markers = ["integration: requires PostgreSQL and Redis"]
+filterwarnings = ["ignore::DeprecationWarning:botocore.*"]
+
+[tool.importlinter]
+root_package = "app"
+
+[[tool.importlinter.contracts]]
+name = "Core must not depend on domain modules"
+type = "forbidden"
+source_modules = ["app.core"]
+forbidden_modules = ["app.modules"]
+
+[[tool.importlinter.contracts]]
+name = "Other modules use the audit module only through audit.service"
+type = "forbidden"
+source_modules = [
+  "app.modules.auth", "app.modules.notification", "app.modules.system", "app.modules.geo",
+  "app.modules.centre", "app.modules.catalog", "app.modules.cms", "app.modules.search",
+]
+forbidden_modules = ["app.modules.audit.models"]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "Notification module does not depend on auth internals"
+type = "forbidden"
+source_modules = ["app.modules.notification"]
+forbidden_modules = [
+  "app.modules.auth.models",
+  "app.modules.auth.repository",
+  "app.modules.auth.service",
+]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "Geography is reference data with no domain dependencies"
+type = "forbidden"
+source_modules = ["app.modules.geo"]
+forbidden_modules = [
+  "app.modules.auth", "app.modules.catalog", "app.modules.centre", "app.modules.cms",
+  "app.modules.search",
+]
+
+[[tool.importlinter.contracts]]
+name = "Catalog does not depend on centres, CMS or search (they depend on it)"
+type = "forbidden"
+source_modules = ["app.modules.catalog"]
+forbidden_modules = ["app.modules.centre", "app.modules.cms", "app.modules.search"]
+
+[[tool.importlinter.contracts]]
+name = "Centres and CMS do not depend on search"
+type = "forbidden"
+source_modules = ["app.modules.centre", "app.modules.cms"]
+forbidden_modules = ["app.modules.search"]
+
+[[tool.importlinter.contracts]]
+name = "Search composes other modules only through their public services and schemas"
+type = "forbidden"
+source_modules = ["app.modules.search"]
+forbidden_modules = [
+  "app.modules.catalog.models", "app.modules.catalog.repository",
+  "app.modules.catalog.admin_service", "app.modules.centre.models", "app.modules.cms.models",
+]
+allow_indirect_imports = true

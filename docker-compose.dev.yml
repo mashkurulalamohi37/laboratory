@@ -1,0 +1,64 @@
+# Development overrides: hot-reload API with bind-mounted source, infra ports published to
+# localhost, dev mail catcher. The React apps run on the host (`pnpm dev`) and proxy /api
+# to localhost:8000, so web/console/nginx are behind the "fullstack" profile.
+services:
+  postgres:
+    ports: ["127.0.0.1:5432:5432"]
+  redis:
+    ports: ["127.0.0.1:6379:6379"]
+  storage:
+    ports: ["127.0.0.1:8333:8333"]
+
+  migrate:
+    build: { context: ./services/api, target: dev }
+    image: nirnoy/api-dev:local
+    volumes: ["./services/api:/app"]
+    command: ["sh", "-c", "alembic upgrade head && python -m app.scripts.init_storage && python -m app.scripts.seed --demo"]
+
+  api:
+    build: { context: ./services/api, target: dev }
+    image: nirnoy/api-dev:local
+    volumes: ["./services/api:/app"]
+    ports: ["127.0.0.1:${API_PORT:-8000}:8000"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/live', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  worker:
+    build: { context: ./services/api, target: dev }
+    image: nirnoy/api-dev:local
+    volumes: ["./services/api:/app"]
+    depends_on:
+      api: { condition: service_started }
+
+  beat:
+    build: { context: ./services/api, target: dev }
+    image: nirnoy/api-dev:local
+    volumes: ["./services/api:/app"]
+    depends_on:
+      api: { condition: service_started }
+
+  mailpit:
+    image: axllent/mailpit:v1.21
+    # Web UI only; services reach SMTP at mailpit:1025 on the internal network.
+    ports: ["127.0.0.1:8025:8025"]
+
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    profiles: ["observability"]
+    volumes: ["./infrastructure/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro"]
+    ports: ["127.0.0.1:9090:9090"]
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    profiles: ["observability"]
+    ports: ["127.0.0.1:3001:3000"]
+
+  web:
+    profiles: ["fullstack"]
+  console:
+    profiles: ["fullstack"]
+  nginx:
+    profiles: ["fullstack"]

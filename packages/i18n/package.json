@@ -1,0 +1,27 @@
+{
+  "name": "@nirnoy/i18n",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "i18next": "^24.2.0",
+    "react-i18next": "^15.4.0"
+  },
+  "peerDependencies": {
+    "react": "^19"
+  },
+  "devDependencies": {
+    "@nirnoy/config": "workspace:*",
+    "eslint": "^9.17.0",
+    "vitest": "^3.0.2"
+  },
+  "sideEffects": false
+}

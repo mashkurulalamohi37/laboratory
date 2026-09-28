@@ -1,0 +1,1 @@
+{ "extends": "@nirnoy/config/tsconfig.base.json", "compilerOptions": { "types": ["vitest/globals"] }, "include": ["src", "vitest.setup.ts", "vitest.config.ts"] }

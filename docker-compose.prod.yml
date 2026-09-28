@@ -1,0 +1,42 @@
+# Production overrides. Secrets come from the host environment / secret manager, never from
+# the repository. TLS is terminated by the load balancer in front of nginx (or add certs here).
+x-restart: &restart
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options: { max-size: "20m", max-file: "5" }
+
+services:
+  postgres:
+    <<: *restart
+    deploy:
+      resources: { limits: { memory: 2g } }
+  redis:
+    <<: *restart
+    deploy:
+      resources: { limits: { memory: 512m } }
+  storage:
+    <<: *restart
+  api:
+    <<: *restart
+    environment:
+      ENVIRONMENT: production
+      API_WORKERS: ${API_WORKERS:-4}
+      FORWARDED_ALLOW_IPS: "*"   # only nginx can reach the api on the internal network
+    deploy:
+      replicas: ${API_REPLICAS:-2}
+      resources: { limits: { memory: 1g } }
+  worker:
+    <<: *restart
+    environment: { ENVIRONMENT: production }
+    deploy:
+      resources: { limits: { memory: 1g } }
+  beat:
+    <<: *restart
+    environment: { ENVIRONMENT: production }
+  web:
+    <<: *restart
+  console:
+    <<: *restart
+  nginx:
+    <<: *restart

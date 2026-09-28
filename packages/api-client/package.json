@@ -1,0 +1,25 @@
+{
+  "name": "@nirnoy/api-client",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "generate": "openapi-typescript ./openapi.json -o ./src/schema.d.ts --default-non-nullable=false",
+    "lint": "eslint .",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "openapi-fetch": "^0.13.4"
+  },
+  "devDependencies": {
+    "@nirnoy/config": "workspace:*",
+    "eslint": "^9.17.0",
+    "openapi-typescript": "^7.5.2",
+    "vitest": "^3.0.2"
+  },
+  "sideEffects": false
+}

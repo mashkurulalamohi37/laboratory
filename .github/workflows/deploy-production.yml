@@ -1,0 +1,27 @@
+name: Deploy · production
+
+# Manual and approval-gated: configure required reviewers on the "production" environment
+# (Settings → Environments). Deploy only a commit that passed CI and ran on staging.
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: Commit SHA already verified on staging
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.sha }}
+      - name: Deploy
+        run: ./scripts/deploy.sh production "${{ inputs.sha }}"
+        env:
+          DEPLOY_HOST: ${{ secrets.PRODUCTION_DEPLOY_HOST }}
+          DEPLOY_SSH_KEY: ${{ secrets.PRODUCTION_DEPLOY_SSH_KEY }}

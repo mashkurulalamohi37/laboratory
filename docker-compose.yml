@@ -1,0 +1,130 @@
+# Base stack. Combine with an environment override:
+#   dev:  docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+#   prod: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+name: nirnoy
+
+x-api-env: &api-env
+  env_file: .env
+  environment:
+    DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+    REDIS_URL: redis://:${REDIS_PASSWORD:-}@redis:6379/0
+    S3_ENDPOINT_URL: http://storage:8333
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./infrastructure/postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    # $$ defers expansion to the container shell (not compose interpolation).
+    command: ["sh", "-c", "exec redis-server --appendonly yes $${REDIS_PASSWORD:+--requirepass \"$$REDIS_PASSWORD\"}"]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli $${REDIS_PASSWORD:+-a \"$$REDIS_PASSWORD\"} --no-auth-warning ping | grep PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # S3-compatible object storage for local/self-hosted use (SeaweedFS). In production,
+  # point S3_ENDPOINT_URL at AWS S3 or another provider and drop this service.
+  storage:
+    image: chrislusf/seaweedfs:3.97
+    environment:
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        printf '{"identities":[{"name":"app","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Admin","Read","Write","List","Tagging"]}]}'
+        "$$S3_ACCESS_KEY" "$$S3_SECRET_KEY" > /tmp/s3.json &&
+        exec weed server -dir=/data -ip.bind=0.0.0.0 -master.volumeSizeLimitMB=64 -volume.max=0
+        -s3 -s3.port=8333 -s3.config=/tmp/s3.json
+    volumes:
+      - storagedata:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:9333/cluster/status || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  migrate:
+    <<: *api-env
+    build: { context: ./services/api, target: runtime }
+    image: nirnoy/api:${IMAGE_TAG:-local}
+    command: ["sh", "-c", "alembic upgrade head && python -m app.scripts.init_storage && python -m app.scripts.seed"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      storage: { condition: service_healthy }
+    restart: "no"
+
+  api:
+    <<: *api-env
+    image: nirnoy/api:${IMAGE_TAG:-local}
+    build: { context: ./services/api, target: runtime }
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+
+  worker:
+    <<: *api-env
+    image: nirnoy/api:${IMAGE_TAG:-local}
+    command: ["celery", "-A", "app.worker.celery_app", "worker", "-Q", "critical,default,reports,batch", "--loglevel=INFO", "--concurrency=${WORKER_CONCURRENCY:-2}"]
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.worker.celery_app inspect ping -d celery@$$HOSTNAME --timeout 5 | grep -q pong"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+
+  beat:
+    <<: *api-env
+    image: nirnoy/api:${IMAGE_TAG:-local}
+    command: ["celery", "-A", "app.worker.celery_app", "beat", "--loglevel=INFO", "--schedule=/tmp/celerybeat-schedule"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+
+  web:
+    image: nirnoy/web:${IMAGE_TAG:-local}
+    build: { context: ., dockerfile: apps/web/Dockerfile }
+
+  console:
+    image: nirnoy/console:${IMAGE_TAG:-local}
+    build: { context: ., dockerfile: apps/console/Dockerfile }
+
+  nginx:
+    image: nginx:1.27-alpine
+    environment:
+      WEB_HOST: ${WEB_HOST:-localhost}
+      CONSOLE_HOST: ${CONSOLE_HOST:-console.localhost}
+    volumes:
+      - ./infrastructure/nginx/default.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ./infrastructure/nginx/snippets:/etc/nginx/snippets:ro
+    ports:
+      - "${HTTP_PORT:-80}:80"
+    depends_on:
+      api: { condition: service_healthy }
+      web: { condition: service_started }
+      console: { condition: service_started }
+
+volumes:
+  pgdata:
+  redisdata:
+  storagedata:

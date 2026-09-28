@@ -1,0 +1,5 @@
+@import "tailwindcss";
+@import "@nirnoy/ui/styles.css";
+
+@source "../../../packages/ui/src";
+@source "../../../packages/app-core/src";

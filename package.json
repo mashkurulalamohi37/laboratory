@@ -1,0 +1,19 @@
+{
+  "name": "nirnoy-diagnostics",
+  "private": true,
+  "packageManager": "pnpm@9.15.0",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "dev": "turbo run dev --parallel",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "api:openapi": "cd services/api && python -m app.scripts.export_openapi ../../packages/api-client/openapi.json",
+    "api:types": "pnpm --filter @nirnoy/api-client generate"
+  },
+  "devDependencies": {
+    "turbo": "^2.3.3",
+    "typescript": "~5.7.2"
+  }
+}

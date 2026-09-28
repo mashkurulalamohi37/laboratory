@@ -1,0 +1,46 @@
+# Edge gateway: TLS termination (in production, in front of or inside this container),
+# per-IP rate limits, body-size caps, request IDs and routing. Internal endpoints such as
+# /metrics and /ready are never exposed.
+
+limit_req_zone $binary_remote_addr zone=api:10m rate=20r/s;
+limit_req_zone $binary_remote_addr zone=auth:10m rate=5r/s;
+limit_req_status 429;
+
+map $http_x_request_id $req_id {
+    default   $http_x_request_id;
+    ""        $request_id;
+}
+
+upstream api_upstream     { server api:8000;     keepalive 32; }
+upstream web_upstream     { server web:8080; }
+upstream console_upstream { server console:8080; }
+
+log_format json escape=json '{"time":"$time_iso8601","request_id":"$req_id",'
+    '"remote":"$remote_addr","host":"$host","method":"$request_method","uri":"$uri",'
+    '"status":$status,"bytes":$body_bytes_sent,"latency":$request_time,'
+    '"upstream_latency":"$upstream_response_time"}';
+access_log /var/log/nginx/access.log json;
+
+server_tokens off;
+client_max_body_size 1m;
+
+
+server {
+    listen 80 default_server;
+    server_name ${WEB_HOST};
+    include /etc/nginx/snippets/api.conf;
+    location / {
+        proxy_pass http://web_upstream;
+        proxy_set_header Host $host;
+    }
+}
+
+server {
+    listen 80;
+    server_name ${CONSOLE_HOST};
+    include /etc/nginx/snippets/api.conf;
+    location / {
+        proxy_pass http://console_upstream;
+        proxy_set_header Host $host;
+    }
+}
